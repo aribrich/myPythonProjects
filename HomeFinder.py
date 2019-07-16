@@ -66,13 +66,23 @@ def page_read():
     list_results = html.find(class_ = "photo-cards photo-cards_wow")
     listings = list_results.find_all("li")
     home_details = {}
+    address_list = []
+    link_list = []
+    price_list = []
+    dim_list = []
     for home_html in listings:
-        link = home_html.find("a")
-        if link != None:
-            home_details["link"] = link.attr['href']
         address = home_html.find(class_ = "list-card-addr")
         if address != None:
+            if address not in home_details["address"]:
+                home_details["address"] = home_details["address"].append(address)
+            else:
+                home_details["address"]
             home_details["address"] = address.get_text()
+        link = home_html.find("a")
+        hyperlink = link.attr['href']
+        if link != None:
+            # if home_details["link"] == []
+            home_details["link"] = hyperlink
         price = home_html.find(class_ = "list-card-price")
         if price != None:
             home_details["price"] = price.get_text()
