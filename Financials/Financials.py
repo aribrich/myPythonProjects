@@ -5,6 +5,7 @@ python gui test
 
 import os
 import tkinter as tk
+from tkinter import ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename
 import pandas as pd
 import pandas_datareader.data as pdr
@@ -14,6 +15,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import matplotlib.dates as mdates
 import numpy as np
 from lxml import html
 import requests
@@ -24,6 +26,8 @@ import random
 import yfinance as yf
 import glob
 
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 
 matplotlib.use("TkAgg")
 
@@ -58,6 +62,7 @@ class Data_Management:
         self.active_ticker_list = self.saved_ticker_list
         self.all_ticker_data = {}
         self.headers = []
+        self.close_df = pd.DataFrame()
         
         for arg in args:
             if arg not in self.active_ticker_list:
@@ -65,7 +70,7 @@ class Data_Management:
         for item in self.active_ticker_list:
             ticker_df = self.get_data(item)
             self.all_ticker_data[item] = ticker_df
-        # self.join_close_data()
+        self.get_close_data()
 
     def add_to_ticker_list(self, ticker):
         if ticker not in self.active_ticker_list:
@@ -207,6 +212,7 @@ class Data_Management:
         # TODO: Add code to check connectivity and consider how to get data
 
         # self.pdlib = use_pandas_lib()
+        output_df = pd.DataFrame()
         fpath = "./stock_dfs/{}.csv".format(ticker)
 
         up_to_date_flag = True
@@ -219,14 +225,18 @@ class Data_Management:
             if (fend_date < convert_day_of_week(END)):
                 # if connects to internet:
                 up_to_date_flag = False
-                return self.read_web_data(ticker)
+                output_df = self.read_web_data(ticker)
             else:
                 up_to_date_flag = True
                 self.headers = df.columns
-                return df
+                output_df = df
         else:
             # if connects to internet:
-            return self.read_web_data(ticker)
+            output_df = self.read_web_data(ticker)
+        
+        self.all_ticker_data[ticker] = output_df
+        self.add_close_data(ticker, output_df)
+        return output_df
         
     def read_web_data(self, ticker, daq="yf"):
         if daq.lower() == "yf":            
@@ -243,36 +253,95 @@ class Data_Management:
         else:
             print("please select valid data acquisition method")
             
-    def join_close_data(self, save=False):
-        close_df = pd.DataFrame()
-        for ticker, data in self.all_ticker_data.items():
-            # fpath = "./stock_dfs/{}.csv".format(ticker)
-            # df = pd.read_csv(fpath)
-            # df.set_index("Date", inplace=True)
-            close_df[ticker] = data['Close']
-        if save == True:
-            pass
-            # df.to_csv('Combined_Close_Data.csv')
-        return close_df
+    def get_close_data(self):
+        close_path = "./all_ticker_close_data.csv"
+        if os.path.exists(close_path):
+            self.close_df = pd.read_csv(close_path)
+            self.close_df.set_index("Date", inplace=True)
+        else:
+            for ticker, data in self.all_ticker_data.items():
+                self.close_df[ticker] = data['Close']
+            self.close_df.to_csv('all_ticker_close_data.csv')
+
+    def add_close_data(self, ticker, df):
+        self.close_df[ticker] = df["Close"]
+        self.close_df.to_csv('all_ticker_close_data.csv')
 
 
 class Portfolio(Data_Management):
-    def __init__(self, cash, stocks, bonds):
+    def __init__(self, name=""):
         '''
-        # Stocks:
-        # [ticker, value, date valued (cost basis)]
+        stock   GOOG    cost basis  date
+        stock   AMZN    ...         ...
+        stock   GLKAS   ...         ...
+        bond    s;ldf   cost basis  date
+        cash    $$$
+
         '''
         # super(Portfolio, self).__init__()
-        self.stocks = stocks
-        self.bonds = bonds
+        self.name = name
+        self.stocks = pd.DataFrame()
+        self.ticker_cost_basis = {}
+        self.bonds = pd.DataFrame()
+        self.cash = 0
+        
+        self.port_path = "./Portfolios/{}.txt".format(self.name)
+        # if os.path.exists(self.port_path):
+        #     self.read_portfolio()
 
-        # joined_close_data = Data_Management.join_close_data()
 
-        # for ticker in stocks.headers:
+    def add_stock_to_portfolio(self, ticker):
+        # self.stock_list.append(ticker)
+        self.stocks[ticker] = dm.close_df[ticker]
 
-
-    def define_pcnt(self):
+    def add_bond_to_portfolio(self, ticker):
         pass
+
+    def remove_from_portfolio(self, ticker):
+        self.stocks.drop(ticker)
+
+    def sum_stocks(self):
+        stock_sum = pd.DataFrame()
+        cols = list(self.stocks)
+        for i, row in self.stocks.iterrows():
+            row_sum = 0
+            for col in cols:
+                row_sum += row[col]
+            stock_sum[i] = row_sum
+        return stock_sum
+
+    def set_cost_basis(self, ticker, value, date):
+        self.ticker_cost_basis[ticker] = (value, date)
+
+    def calc_actual_value(self, ticker):
+        # Is this correct??
+        base_cost = self.ticker_cost_basis[ticker][0]
+        base_date = self.ticker_cost_basis[ticker][1]
+        ref_cost = self.stocks[ticker][base_date]
+        relative_diff = base_cost / ref_cost
+        return self.stocks[ticker] * relative_diff
+
+    def def_pcnt_inv(self):
+        stock_sum = self.sum_stocks()
+        total = stock_sum.iloc[-1] # + bonds + cash
+        # pcnt_stock = ...
+
+    def save_portfolio(self):
+        with open(self.port_path,"w") as f:
+            for ticker, cb in self.ticker_cost_basis.items():
+                f.write("{}\t{}\t{}\t{}\n".format("stock", ticker, cb[0], cb[1]))
+        
+    def read_portfolio(self):
+        with open(self.port_path,"r") as f:
+            for line in f:
+                line_list = line.strip().split("\t")
+                if line_list[0] == "stock":
+                    self.add_stock_to_portfolio(line_list[1])
+                    self.ticker_cost_basis[line_list[1]] = (line_list[2], line_list[3])
+                if line_list[0] == "bond":
+                    pass
+                if line_list[0] == "cash":
+                    pass
 
 
 class Analysis:
@@ -334,6 +403,13 @@ class Analysis:
         return round(100 * (pdl[end] - pdl[start]) / pdl[end], 1)
 
 
+    def compounding_interest(self, inp, period, interest):
+        output = []
+        output[0] = inp
+        for i in range(1, period):
+            output[i] = output[i-1] * (1 + interest)
+        return output
+
 # GUI
 class EmbeddedPlot(tk.Frame):
     def __init__(self, parent):
@@ -345,11 +421,15 @@ class EmbeddedPlot(tk.Frame):
         self.col = 1
         self.num = 1
 
+        plot1 = dm.close_df['GOOG'].dropna()
+        plot2 = analysis.ticker_data["Low"]
+
         self.fig = Figure(figsize=(5,5), dpi=100)
         ax1 = self.fig.add_subplot(211)
-        ax1.plot(analysis.ticker_data["High"])
-        ax2 = self.fig.add_subplot(212)
-        ax2.plot(analysis.ticker_data["Low"])
+        ax1.plot(plot1)
+        ax1.xaxis.set_major_locator(mdates.YearLocator())
+        ax2 = self.fig.add_subplot(212) 
+        ax2.plot(plot2)
         chart = FigureCanvasTkAgg(self.fig, self)
         chart.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
@@ -357,8 +437,8 @@ class EmbeddedPlot(tk.Frame):
         toolbar.update()
         chart.get_tk_widget().pack(side=tk.TOP, fill=tk.X, expand=True)
 
-
         self.subplot_num = 111
+
     def add_more_plots(self):
         axn = []
         col = self.subplot_num // 100
@@ -374,21 +454,21 @@ class EmbeddedPlot(tk.Frame):
 class NavBar(tk.Frame):
     def __init__(self, parent, *args, **kwargs):
         tk.Frame.__init__(self, parent, *args, **kwargs)
+        # nav_row_order = enum()
 
         self.singleStockBtn = tk.Button(self, text = "One Stock")
         self.multiStickBtn = tk.Button(self, text="Multiple Stocks")
         self.newsBtn = tk.Button(self, text="News")
-        self.select_mode = "multiple"
-        self.stock_selector = tk.Listbox(self, selectmode=self.select_mode)
+        self.stock_selector = tk.Listbox(self, selectmode=tk.EXTENDED)
+        self.add_stock_ent = tk.Entry(self, width=10, font=LARGE_FONT)
+        self.add_stock_button = tk.Button(self, text="Add", command=self.add_stock_to_list)
+        self.remove_stock_button = tk.Button(self, text="Remove", command=self.remove_stock_from_list)
+        self.stock_list_lbl = tk.Label(self, text="Stock List")
         for ticker in dm.active_ticker_list:
             self.stock_selector.insert(tk.END, ticker)
         self.stockScroll = tk.Scrollbar(self)
-        self.add_stock_ent = tk.Entry(self, width=10, font=LARGE_FONT)
-        self.edit_prt_btn = tk.Button(self, text="Edit Portfolio", state=tk.DISABLED, command=self.edit_portfolio)
-        self.lbl = "Stock List"
-        self.list_lbl = tk.Label(self, text=self.lbl)
-        self.add_stock_button = tk.Button(self, text="Add", command=self.add_stock_to_list)
-        self.remove_stock_button = tk.Button(self, text="Remove", command=self.remove_stock_from_list)
+        
+        self.edit_prt_btn = tk.Button(self, text="Edit", command=self.portfolio_window) # state=tk.DISABLED
         
         self.add_stock_ent.bind('<Return>', self.add_stock_to_list)
 
@@ -398,20 +478,19 @@ class NavBar(tk.Frame):
         self.add_stock_ent.grid(row=3, column=0, sticky="nswe")
         self.add_stock_button.grid(row=3, column=1, sticky="e")
         self.remove_stock_button.grid(row=4, column=0, columnspan=2, sticky="nwe")
-        self.edit_prt_btn.grid(row=5, column=0, columnspan=2, sticky="nwe")
-        self.list_lbl.grid(row=6, column=0, columnspan=2, sticky="nwe")
-        self.stock_selector.grid(row=7, column=0, columnspan=2, sticky="nsew")
-        self.stockScroll.grid(row=7, column=1, sticky="nse")
+        self.stock_list_lbl.grid(row=5, column=0, columnspan=2, sticky="nwe")
+        self.stock_selector.grid(row=6, column=0, columnspan=2, sticky="nsew")
+        self.stockScroll.grid(row=6, column=1, sticky="nse")
 
         self.stock_selector.config(yscrollcommand=self.stockScroll.set)
         self.stockScroll.config(command=self.stock_selector.yview)
-    '''
-        lbl_portforlio = tk.Label(self, text="Portfolio")
-        lbl_portforlio.grid(row=6, column=1, columnspan=2, sticky="nwe")
-        prt_selector = tk.Listbox(self)
-        prt_selector.grid(row)
-    '''    
 
+        lbl_portforlio = tk.Label(self, text="Portfolio List")
+        lbl_portforlio.grid(row=7, column=0, columnspan=2, sticky="nwe")
+        self.edit_prt_btn.grid(row=8, column=0, columnspan=2, sticky="nwe")
+        self.prt_lst = tk.Listbox(self, selectmode=tk.EXTENDED)
+        self.prt_lst.grid(row=9, column=0, columnspan=2, sticky="nsew")
+    
     def add_stock_to_list(self, event=None):
         entered_stock = self.add_stock_ent.get()
         if entered_stock != "":
@@ -431,8 +510,81 @@ class NavBar(tk.Frame):
             dm.active_ticker_list.remove(selection[0])
             self.remove_stock_from_list()        
 
+    def portfolio_window(self):
+        self.pEditor = tk.Toplevel(app)
+
+        plot_frm = tk.Frame(self.pEditor, width=150, height=150, bg="red")
+        plot_frm.grid(row=0,column=0)
+
+        action_frm = tk.Frame(self.pEditor, width=150, height=150, bg="green")
+        action_frm.grid(row=0, column=1, sticky="nsew")
+        choices = ["Stock", "Bond", "Cash"]
+        self.dropdown = ttk.Combobox(action_frm, values=choices)#, default="Select")
+        self.dropdown.grid(row=0, column=0, padx=5, pady=5, sticky="nwe")
+        entry_frm = tk.Frame(action_frm)
+        entry_frm.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        name_lbl = tk.Label(entry_frm, text="Name ")
+        self.ticker_name_ent = tk.Entry(entry_frm)
+        name_lbl.grid(row=0, column=0)
+        self.ticker_name_ent.grid(row=0, column=1)
+        date_lbl = tk.Label(entry_frm, text="Date ")
+        self.date_ent = tk.Entry(entry_frm)
+        date_lbl.grid(row=1, column=0)
+        self.date_ent.grid(row=1, column=1)
+        val_lbl = tk.Label(entry_frm, text="Value ")
+        self.val_ent = tk.Entry(entry_frm)
+        val_lbl.grid(row=2, column=0)
+        self.val_ent.grid(row=2, column=1)
+        entry_btn = tk.Button(entry_frm, text="Enter", command=self.edit_portfolio)
+        entry_btn.grid(row=3, column=0, columnspan=2, stick="nsew")
+
+        list_frm = tk.Frame(self.pEditor, width=300, height=150, bg="blue")
+        list_frm.grid(row=0, column=2)
+
+        
+        self.prt_name_ent = tk.Entry(list_frm)
+        self.prt_name_ent.grid(row=0, column=0, sticky="nwe")
+
+        selection = self.prt_lst.curselection()
+        if not selection:
+            self.prt_name_ent.delete(0, tk.END)
+        else:
+            self.prt_name_ent.delete(0, tk.END)
+            self.prt_name_ent.insert(0, self.prt_lst.get(selection[0]))
+            self.prt_name_ent.config(state=tk.DISABLED)
+
+        
+        self.stock_lst = tk.Listbox(list_frm)
+        self.stock_lst.grid(row=1, column=0, sticky="nsew")
+
+        self.pEditor.protocol("WM_DELETE_WINDOW", self._delete_window)
+        
+    def _delete_window(self):
+        if self.prt_name_ent.get() not in self.prt_lst.get(0, tk.END):
+            self.prt_lst.insert(tk.END, self.prt_name_ent.get())
+        self.pEditor.destroy()
+
     def edit_portfolio(self):
-        pass
+        entry = self.dropdown.get().lower()
+        date = self.date_ent.get()
+        value = self.val_ent.get()
+        prt_name = self.prt_name_ent.get()
+        ticker_name = self.ticker_name_ent.get()
+        output_text = ""
+        if prt_name not in portfolio_dct.keys():
+            portfolio_dct[prt_name] = Portfolio(prt_name)
+        if entry == "stock":
+            portfolio_dct[prt_name].add_stock_to_portfolio(ticker_name)
+            portfolio_dct[prt_name].set_cost_basis(ticker_name,value,date)
+            output_text = entry + "\t\t" + ticker_name + "\t\t" + str(value) + "\t\t" + str(date)
+        if entry == "bond":
+            portfolio_dct[prt_name].add_bond_to_portfolio(ticker_name)
+            portfolio_dct[prt_name].set_cost_basis(ticker_name,value,date)
+            output_text = entry + "\t\t" + ticker_name + "\t\t" + str(value) + "\t\t" + str(date)
+        if entry == "cash":
+            portfolio_dct[prt_name].cash = value
+            output_text = entry + "\t\t\t\t\t" + str(value)
+        self.stock_lst.insert(tk.END, output_text)
 
     def show_nav_selection(self):
         pass
@@ -562,7 +714,14 @@ if __name__ == "__main__":
     # DM = Data_Management(ticker)
     dm = Data_Management()
     analysis = Analysis(Active_Item)
-    
+    try:
+        saved_portfolios = [os.path.splitext(f)[0] for f in os.listdir("Portfolios")]
+        portfolio_dct = {}
+        for name in saved_portfolios:
+            portfolio_dct[name] = Portfolio(name)
+    except:
+        os.mkdir("Portfolios")
+
     app = MainApp()
     app.mainloop()
 
