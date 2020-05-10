@@ -275,26 +275,49 @@ class Portfolio(Data_Management):
         stock   AMZN    ...         ...
         stock   GLKAS   ...         ...
         bond    s;ldf   cost basis  date
-        cash    $$$
+        cash            $$$
 
         '''
         # super(Portfolio, self).__init__()
         self.name = name
+        self.portfolio_current_value = 0
         self.stocks = pd.DataFrame()
         self.ticker_cost_basis = {}
         self.bonds = pd.DataFrame()
         self.cash = 0
-        
+        self.values_over_time = pd.DataFrame()
+        self.total_value_over_time = pd.DataFrame()
         self.port_path = "./Portfolios/{}.txt".format(self.name)
         # if os.path.exists(self.port_path):
         #     self.read_portfolio()
 
 
+    def get_values_over_time(self):
+        return self.values_over_time
+
+    def set_values_over_time(self):
+        for ticker in self.stocks.columns:
+            base_cost = self.ticker_cost_basis[ticker][0]
+            base_date = self.ticker_cost_basis[ticker][1]
+            ref_cost = self.stocks[ticker][base_date]
+            relative_diff = base_cost / ref_cost
+            if ticker in self.ticker_cost_basis.keys:
+                if self.values_over_time[ticker] == self.stocks[ticker]:
+                    self.values_over_time[ticker] = self.stocks[ticker] * relative_diff
+                    self.values_over_time[ticker][0:base_date-1] = 0
+                else:
+                    #TODO    
+                    self.values_over_time[ticker] = self.values_over_time[ticker] * relative_diff
+
+
+    def get_total_value_over_time(self):
+        return self.total_value_over_time
+
     def add_stock_to_portfolio(self, ticker):
-        # self.stock_list.append(ticker)
         self.stocks[ticker] = dm.close_df[ticker]
 
     def add_bond_to_portfolio(self, ticker):
+        # self.bonds[ticker] = dm.bond_close_df[ticker]
         pass
 
     def remove_from_portfolio(self, ticker):
@@ -312,14 +335,6 @@ class Portfolio(Data_Management):
 
     def set_cost_basis(self, ticker, value, date):
         self.ticker_cost_basis[ticker] = (value, date)
-
-    def calc_actual_value(self, ticker):
-        # Is this correct??
-        base_cost = self.ticker_cost_basis[ticker][0]
-        base_date = self.ticker_cost_basis[ticker][1]
-        ref_cost = self.stocks[ticker][base_date]
-        relative_diff = base_cost / ref_cost
-        return self.stocks[ticker] * relative_diff
 
     def def_pcnt_inv(self):
         stock_sum = self.sum_stocks()
@@ -416,28 +431,33 @@ class EmbeddedPlot(tk.Frame):
         tk.Frame.__init__(self, parent)
 
         self.plt_lst = pd.DataFrame()
-
         self.row = len(self.plt_lst.columns)
         self.col = 1
         self.num = 1
-
-        plot1 = dm.close_df['GOOG'].dropna()
-        plot2 = analysis.ticker_data["Low"]
-
-        self.fig = Figure(figsize=(5,5), dpi=100)
-        ax1 = self.fig.add_subplot(211)
-        ax1.plot(plot1)
-        ax1.xaxis.set_major_locator(mdates.YearLocator())
-        ax2 = self.fig.add_subplot(212) 
-        ax2.plot(plot2)
-        chart = FigureCanvasTkAgg(self.fig, self)
-        chart.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        toolbar = NavigationToolbar2Tk(chart, self)
-        toolbar.update()
-        chart.get_tk_widget().pack(side=tk.TOP, fill=tk.X, expand=True)
-
         self.subplot_num = 111
+
+    def plot_time_series(self, data1, data2):
+        # data = pd.DataDrame()
+        fig = Figure(figsize=(5,5), dpi=100)
+        ax1 = fig.add_subplot(211)
+        ax2 = fig.add_subplot(212)
+        ax1.plot(data1)
+        ax2.plot(data2)
+        ax1.xaxis.set_major_locator(mdates.YearLocator())
+        canvas = FigureCanvasTkAgg(fig, self)
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Toolbar
+        toolbar = NavigationToolbar2Tk(canvas, self)
+        toolbar.update()
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.X, expand=True)
+
+    def plot_pie_chart(self, data):
+        fig = Figure(figsize=(2,2), dpi=100)
+        ax1 = fig.add_subplot()
+        ax1.plot(data1)
+        canvas = FigureCanvasTkAgg(fig, self)
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def add_more_plots(self):
         axn = []
@@ -447,13 +467,13 @@ class EmbeddedPlot(tk.Frame):
         temp_num = (col * 100) + (row * 10) + 1
         iterations = col * row
         # self.fig.
-        for i in range(iterations):
-            axn = self.fig.add_subplot(col, row, i+1)
+        # for i in range(iterations):
+        #     axn = self.fig.add_subplot(col, row, i+1)
             # temp_num += 1
 
 class NavBar(tk.Frame):
-    def __init__(self, parent, *args, **kwargs):
-        tk.Frame.__init__(self, parent, *args, **kwargs)
+    def __init__(self, parent):#, *args, **kwargs):
+        tk.Frame.__init__(self, parent)#, *args, **kwargs)
         # nav_row_order = enum()
 
         self.singleStockBtn = tk.Button(self, text = "One Stock")
@@ -633,8 +653,11 @@ class singleStockFrame(tk.Frame):
         # dividends = analysis.dividends()
         # self.div_lbl = tk.Label(self, text=dividends)
 
+        plot1 = dm.close_df['GOOG'].dropna()
+        plot2 = analysis.ticker_data["Low"]
 
         plot_frame = EmbeddedPlot(self)
+        plot_frame.plot_time_series(plot1, plot2)
         plot_frame.grid(row=0, column=1, rowspan=1, sticky="NSEW")
 
         '''
